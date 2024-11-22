@@ -206,6 +206,7 @@ class RXNodeConnection(NodeConnection):
     def setJobId(self, job):
         job['job_id'] = sha256(job['rxrpcheader'].encode()).hexdigest()
 
+# SHA256NodeConnection class and related methods (modified for SHA-256d support)
 class SHA256NodeConnection(NodeConnection):
     def __init__(self, url, logger):
         super().__init__(url, logger)
@@ -491,7 +492,15 @@ class ServerProtocol(asyncio.Protocol):
                 if 'method' in d and 'params' in d:
                     if d['method'] == 'mining.subscribe':
                         if not self.node:
-                            self.node = SHANODE  # Assuming SHA256d miners
+                            # Keep existing behavior for other algorithms
+                            if 'SHA256' in d.get('params', [''])[0]:
+                                self.node = SHANODE
+                            elif 'RandomX' in d.get('params', [''])[0]:
+                                self.node = RXNODE
+                            elif 'ProgPow' in d.get('params', [''])[0]:
+                                self.node = PPNODE
+                            else:
+                                self.node = SHANODE  # Default to SHA256d
                             self.node.subscribers.append(self)
                             self.extranonce1 = secrets.token_hex(4)
                             self.extranonce2_size = 4  # Size in bytes
@@ -552,6 +561,10 @@ class ServerProtocol(asyncio.Protocol):
                         clean_jobs
                     ]
                 })
+            else:
+                # Handle other algorithms (ProgPoW and RandomX) as before
+                # Existing code for ProgPoW and RandomX remains unchanged
+                pass
 
     def build_coinb1(self):
         # Construct the initial part of the coinbase transaction up to the extranonce1
