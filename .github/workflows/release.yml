@@ -1,9 +1,12 @@
-name: CI Build (PyInstaller)
+name: Release (PyInstaller)
 
 on:
   push:
-    branches: ["*"]
-  pull_request:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -11,7 +14,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
 
     steps:
       - name: Checkout
@@ -32,16 +41,21 @@ jobs:
         run: |
           pyinstaller --clean --noconfirm --onefile --name veilproxy veilproxy.py
 
-      - name: Upload artifact (Linux/macOS)
+      - name: Package (Linux/macOS)
         if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: veilproxy-${{ runner.os }}
-          path: dist/veilproxy
+        shell: bash
+        run: |
+          tar -czf veilproxy-${{ matrix.platform }}.tar.gz -C dist veilproxy
 
-      - name: Upload artifact (Windows)
+      - name: Package (Windows)
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        shell: pwsh
+        run: |
+          Compress-Archive -Force -Path dist\veilproxy.exe -DestinationPath veilproxy-${{ matrix.platform }}.zip
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: veilproxy-${{ runner.os }}
-          path: dist/veilproxy.exe
+          files: |
+            veilproxy-*.tar.gz
+            veilproxy-*.zip
