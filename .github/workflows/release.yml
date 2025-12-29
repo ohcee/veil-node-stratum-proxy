@@ -1,27 +1,17 @@
-name: Build & Release (PyInstaller)
+name: CI Build (PyInstaller)
 
 on:
   push:
-    tags:
-      - "v*"
-
-permissions:
-  contents: write
+    branches: ["*"]
+  pull_request:
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux
-          - os: macos-latest
-            platform: macos
-          - os: windows-latest
-            platform: windows
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout
@@ -31,7 +21,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Install deps
         run: |
@@ -43,90 +32,16 @@ jobs:
         run: |
           pyinstaller --clean --noconfirm --onefile --name veilproxy veilproxy.py
 
-      - name: Prepare bundle (Linux/macOS)
+      - name: Upload artifact (Linux/macOS)
         if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          mkdir -p bundle
-          cp dist/veilproxy bundle/
-          cp README.md bundle/ 2>/dev/null || true
-
-          cat > bundle/veilproxy.env.example <<'EOF'
-RPC_URL=http://rpcuser:rpcpassword@127.0.0.1:5556
-LISTEN_PORT=5555
-LISTEN_ADDR=0.0.0.0
-EXTRA_ARGS=-j
-EOF
-
-          cat > bundle/run.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="${ENV_FILE:-$HERE/veilproxy.env}"
-
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-else
-  echo "Missing $ENV_FILE (copy veilproxy.env.example -> veilproxy.env)"
-  exit 1
-fi
-
-: "${RPC_URL:?RPC_URL missing}"
-LISTEN_PORT="${LISTEN_PORT:-5555}"
-LISTEN_ADDR="${LISTEN_ADDR:-0.0.0.0}"
-EXTRA_ARGS="${EXTRA_ARGS:-}"
-
-exec "$HERE/veilproxy" -a "$LISTEN_ADDR" -p "$LISTEN_PORT" -n "$RPC_URL" ${EXTRA_ARGS}
-EOF
-
-          chmod +x bundle/run.sh
-          tar -czf "veilproxy-${{ matrix.platform }}.tar.gz" -C bundle .
-
-      - name: Prepare bundle (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path bundle | Out-Null
-          Copy-Item dist\veilproxy.exe bundle\
-          if (Test-Path README.md) { Copy-Item README.md bundle\ }
-
-          @"
-RPC_URL=http://rpcuser:rpcpassword@127.0.0.1:5556
-LISTEN_PORT=5555
-LISTEN_ADDR=0.0.0.0
-EXTRA_ARGS=-j
-"@ | Out-File -Encoding ascii bundle\veilproxy.env.example
-
-          @"
-@echo off
-setlocal enabledelayedexpansion
-set ENV_FILE=%~dp0veilproxy.env
-
-if exist "%ENV_FILE%" (
-  for /f "usebackq tokens=1,* delims==" %%A in ("%ENV_FILE%") do set %%A=%%B
-) else (
-  echo Missing %ENV_FILE% (copy veilproxy.env.example ^> veilproxy.env)
-  exit /b 1
-)
-
-if "%RPC_URL%"=="" (
-  echo RPC_URL missing in veilproxy.env
-  exit /b 1
-)
-
-if "%LISTEN_PORT%"=="" set LISTEN_PORT=5555
-if "%LISTEN_ADDR%"=="" set LISTEN_ADDR=0.0.0.0
-if "%EXTRA_ARGS%"=="" set EXTRA_ARGS=-j
-
-"%~dp0veilproxy.exe" -a "%LISTEN_ADDR%" -p "%LISTEN_PORT%" -n "%RPC_URL%" %EXTRA_ARGS%
-"@ | Out-File -Encoding ascii bundle\run.bat
-
-          Compress-Archive -Force -Path bundle\* -DestinationPath veilproxy-windows.zip
-
-      - name: Publish Release Assets
-        uses: softprops/action-gh-release@v2
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            veilproxy-*.tar.gz
-            veilproxy-windows.zip
+          name: veilproxy-${{ runner.os }}
+          path: dist/veilproxy
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: veilproxy-${{ runner.os }}
+          path: dist/veilproxy.exe
