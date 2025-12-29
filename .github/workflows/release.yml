@@ -55,3 +55,4 @@ jobs:
           files: |
             veilproxy-*.tar.gz
             veilproxy-*.zip
+
