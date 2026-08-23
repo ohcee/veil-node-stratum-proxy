@@ -78,12 +78,24 @@ wallet v1.4.0.0 or higher.
    ./xmrig -o 127.0.0.1:5555 -u x -p x
    ```
 
-   **cgminer / bfgminer** (SHA256D, e.g. a USB ASIC stick). Run the proxy with
-   `--subscribe-algo sha256d`, or serve sha256d on its own port:
+   **SHA256D with cpuminer-opt-veil** (CPU, the tested path). This miner
+   speaks a Veil specific dialect, so run the proxy with
+   `--sha256d-wire cpuminer`:
+   ```bash
+   python3 veilproxy.py -p 5557 -n http://veil:veil@127.0.0.1:5556 \
+       --algos sha256d --subscribe-algo sha256d --sha256d-wire cpuminer
+   cpuminer -a sha256dv -o stratum+tcp://127.0.0.1:5557 -u x -p x
+   ```
+
+   **SHA256D with a standard stratum miner** (cgminer / bfgminer, e.g. a USB
+   ASIC stick). This uses the default `--sha256d-wire stratum`:
    ```bash
    python3 veilproxy.py -p 5557 -n http://veil:veil@127.0.0.1:5556 --algos sha256d --subscribe-algo sha256d
    cgminer -o stratum+tcp://127.0.0.1:5557 -u x -p x
    ```
+   The two SHA256D wire formats differ; pick the one your miner speaks.
+   cpuminer-opt-veil needs `cpuminer`; ASIC/cgminer style miners need
+   `stratum`.
 
 ## Mining SHA256D on Veil
 
