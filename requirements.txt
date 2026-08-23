@@ -1,2 +1,3 @@
-aiohttp
+# veilproxy.py runs on the Python 3.8+ standard library, no install required.
+# coloredlogs is optional; it is used for prettier logs only if it is present.
 coloredlogs

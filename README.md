@@ -1,19 +1,28 @@
 # VEIL node stratum proxy
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/us77ipis/veil-node-stratum-proxy?display_name=tag&cacheSeconds=3600)](https://github.com/us77ipis/veil-node-stratum-proxy/releases)
-[![GitHub Release Date](https://img.shields.io/github/release-date/us77ipis/veil-node-stratum-proxy?cacheSeconds=3600)](https://github.com/us77ipis/veil-node-stratum-proxy/releases)
+Solo mine [VEIL](https://veil-project.com/) straight to your own full node, with
+the mining software of your choice and no pool in the middle.
 
-This proxy written in python implements a simple stratum protocol which most of the mining software out there should understand (tested with [T-Rex](https://trex-miner.com/), [WildRig](https://github.com/andru-kun/wildrig-multi) and [xmrig](https://xmrig.com/) miner), in order to be able to solo mine [VEIL](https://veil-project.com/) directly using a full local node and the mining software of your choice, without the need to use a mining pool or the only miner which currently supports mining directly to a node (TT-Miner).
+The proxy speaks stratum to your miner and JSON-RPC to your node. It serves all
+three of Veil's proof of work algorithms:
 
-The proxy can be used to mine both ProgPoW VEIL and RandomX VEIL.
+| algorithm | miners | notes |
+|-----------|--------|-------|
+| **ProgPoW** | T-Rex, WildRig | GPU |
+| **RandomX** | xmrig | CPU |
+| **SHA256D** | cgminer, bfgminer, cpuminer | CPU, FPGA and USB ASIC sticks |
+
+SHA256D support requires a node new enough to serve sha256d work over RPC
+(`sharpcheader` / `sharpccoinbase` / `sharpcsb`). ProgPoW and RandomX work with
+wallet v1.4.0.0 or higher.
+
+**No dependencies.** Python 3.8+ and nothing else; `pip install` is not needed.
+`coloredlogs` is used if it happens to be installed, and skipped if not.
 
 ## Setup
 
-1. **Setup your VEIL full node** as described in https://veil-project.com/blog/2020-mineafterhardfork/.
+1. **Set up your VEIL full node.** An example `veil.conf`:
 
-   **NOTE**: Make sure you are running **wallet version [v1.4.0.0](https://github.com/Veil-Project/veil/releases) or higher**.
-
-   An example working `veil.conf` file is the following:
    ```
    rpcuser=veil
    rpcpassword=veil
@@ -24,50 +33,107 @@ The proxy can be used to mine both ProgPoW VEIL and RandomX VEIL.
    listen=1
    miningaddress=<your-mining-address>
    ```
-   **NOTE**: Replace `rpcuser`, `rpcpassword` and `<your-mining-address>` accordingly.
-   `<your-mining-address>` must be a basecoin address which you can generate in the desktop wallet under `Settings > Advanced Options > Console > getnewbasecoinaddress`.
 
-2. **Setup the proxy**:
+   Replace `rpcuser`, `rpcpassword` and `<your-mining-address>`.
+   `<your-mining-address>` must be a basecoin address, which you can generate in
+   the desktop wallet under `Settings > Advanced Options > Console >
+   getnewbasecoinaddress`. Without `miningaddress` the node will not hand out
+   work, because it has nowhere to pay the coinbase.
 
-   Install python dependencies (`python 3` required):
+2. **Start the proxy:**
+
    ```bash
-   pip install -r requirements.txt
-   ```
-   Start the proxy:
-   ```bash
-   # Replace veil:veil by your rpcuser:rpcpassword from veil.conf
-   # You can use option -a to change the listen address
-   # You can use option -j to show jobs in the log
    python3 veilproxy.py -p 5555 -n http://veil:veil@127.0.0.1:5556 -j
    ```
 
-3. **Start your miner!** Note that username and password for the proxy can be anything.
+   Useful options:
 
-   Example for **T-Rex ProgPoW** miner (**T-Rex 0.26.6 or higher required**):
+   ```
+   -a, --address        listen address (default 0.0.0.0)
+   --algos              which algorithms to serve (default all three)
+   --subscribe-algo     what a bare mining.subscribe means, progpow or sha256d
+   --share-diff         sha256d share difficulty reported to miners
+   -j, --jobs           log every new job
+   -v, --verbose        debug logging
+   --selftest           run internal consistency checks and exit
+   ```
+
+   The proxy only polls the node for algorithms that somebody is actually
+   mining, so leaving all three enabled costs nothing.
+
+3. **Start your miner.** Username and password can be anything.
+
+   **T-Rex** (ProgPoW, 0.26.6+):
    ```bash
-   # For Linux
    ./t-rex --validate-shares -a progpow-veil --coin veil -o stratum+tcp://127.0.0.1:5555 -u x -p x
-   # For Windows
-   t-rex.exe --validate-shares -a progpow-veil --coin veil -o stratum+tcp://127.0.0.1:5555 -u x -p x
    ```
 
-   Example for **WildRig ProgPoW** miner (**WildRig 0.32.1 or higher required**):
+   **WildRig** (ProgPoW, 0.32.1+):
    ```bash
-   # For Linux
    ./wildrig --print-full -a progpow-veil -o 127.0.0.1:5555 -u x -p x
-   # For Windows
-   wildrig.exe --print-full -a progpow-veil -o 127.0.0.1:5555 -u x -p x
    ```
 
-   Example for **xmrig RandomX** miner:
+   **xmrig** (RandomX):
    ```bash
-   # For Linux
    ./xmrig -o 127.0.0.1:5555 -u x -p x
-   # For Windows
-   xmrig.exe -o 127.0.0.1:5555 -u x -p x
    ```
-   **NOTE**: xmrig with VEIL support is not yet released. Until then, you have to build it from source. To do this, follow the [**official xmrig build guide**](https://xmrig.com/docs/miner/build), but use the repository https://github.com/us77ipis/xmrig-veil instead of https://github.com/xmrig/xmrig. This note will be updated once the changes are merged into the official xmrig repository.
 
+   **cgminer / bfgminer** (SHA256D, e.g. a USB ASIC stick). Run the proxy with
+   `--subscribe-algo sha256d`, or serve sha256d on its own port:
+   ```bash
+   python3 veilproxy.py -p 5557 -n http://veil:veil@127.0.0.1:5556 --algos sha256d --subscribe-algo sha256d
+   cgminer -o stratum+tcp://127.0.0.1:5557 -u x -p x
+   ```
+
+## Mining SHA256D on Veil
+
+Veil's sha256d header is Bitcoin shaped but not Bitcoin. The 80 bytes that get
+double SHA256'd are:
+
+```
+nVersion(4) || dataHash(32) || hashMerkleRoot(32) || nTime(4) || nNonce64(8)
+```
+
+where `dataHash = sha256d(hashPrevBlock || hashWitnessMerkleRoot ||
+hashAccumulators || nBits)`.
+
+The SHA256 hashing itself is completely standard, so ASIC silicon works
+unmodified. Two Veil specifics shape how the proxy uses stratum:
+
+- **No extranonce2 rolling.** `dataHash` commits the witness merkle root, which
+  in Veil commits the coinbase, so changing the coinbase invalidates the work.
+  The proxy advertises `extranonce2_size = 0` and issues fresh jobs instead.
+- **A 64 bit nonce.** The last 8 bytes cover both the slot where Bitcoin keeps
+  `nBits` and the slot where it keeps the nonce. Stratum only lets a miner roll
+  32 bits, so the proxy varies the low half per job and ships it in the `nbits`
+  field, which firmware treats as opaque. The real `nBits` cannot be forged
+  because it is committed inside `dataHash`.
+
+**What this means for hashrate.** Each job is worth `2^32` hashes multiplied by
+whatever ntime range your miner rolls. That is comfortable for USB sticks and
+small FPGAs: a 400 GH/s stick rolling ntime over a minute needs only a couple of
+jobs per second. It does not scale to large modern ASICs, which would need
+thousands of jobs per second. Veil's sha256d difficulty is low, so this is
+rarely the binding constraint.
+
+**Version rolling is refused.** Veil keeps its algorithm selector in `nVersion`,
+so the proxy answers `mining.configure` with `version-rolling: false`.
+
+## Troubleshooting
+
+**"No sharpcheader in the template"** — `miningaddress` is not set in
+`veil.conf`, or your node predates sha256d RPC support.
+
+**"This node does not return sharpccoinbase"** — your node is too old to serve
+standard stratum for sha256d. Update it.
+
+**"Node reports mining_disabled"** — Veil allows at most a few consecutive PoW
+blocks before a PoS block is required. The proxy keeps serving work and says so;
+it clears on its own.
+
+**Shares accepted but no blocks** — that is normal. The proxy validates every
+share locally and only forwards to the node those that actually clear the block
+target.
 
 ## Donations
 
