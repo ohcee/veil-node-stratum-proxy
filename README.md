@@ -10,11 +10,27 @@ three of Veil's proof of work algorithms:
 |-----------|--------|-------|
 | **ProgPoW** | T-Rex, WildRig | GPU |
 | **RandomX** | xmrig | CPU |
-| **SHA256D** | cgminer, bfgminer, cpuminer | CPU, FPGA and USB ASIC sticks |
+| **SHA256D** | cpuminer-opt-veil (`sha256dv`) | CPU, Veil aware miners only |
 
 SHA256D support requires a node new enough to serve sha256d work over RPC
 (`sharpcheader` / `sharpccoinbase` / `sharpcsb`). ProgPoW and RandomX work with
 wallet v1.4.0.0 or higher.
+
+### SHA256D needs a Veil aware miner
+
+Stock SHA256D miners (cgminer, bfgminer, unmodified cpuminer, and the USB ASIC
+sticks they drive) **do not work** with Veil, and no proxy setting changes that.
+They all require a rollable `extranonce2`, which is how an ordinary pool gives
+each miner unique work by mutating the coinbase. Veil commits the coinbase
+inside the header's `dataHash`, so the coinbase cannot be rolled; the proxy
+advertises `extranonce2_size = 0` and stock miners refuse it with "Failed to
+get extranonce2_size".
+
+A working SHA256D miner must instead accept fixed work and grind the 64 bit
+nonce. Today that means **cpuminer-opt-veil** with `-a sha256dv`, served by this
+proxy in `--sha256d-wire cpuminer` mode. The default `--sha256d-wire stratum`
+mode speaks standard stratum for any future miner written to tolerate a zero
+width extranonce2, but no off the shelf miner does that yet.
 
 **No dependencies.** Python 3.8+ and nothing else; `pip install` is not needed.
 `coloredlogs` is used if it happens to be installed, and skipped if not.
@@ -87,15 +103,10 @@ wallet v1.4.0.0 or higher.
    cpuminer -a sha256dv -o stratum+tcp://127.0.0.1:5557 -u x -p x
    ```
 
-   **SHA256D with a standard stratum miner** (cgminer / bfgminer, e.g. a USB
-   ASIC stick). This uses the default `--sha256d-wire stratum`:
-   ```bash
-   python3 veilproxy.py -p 5557 -n http://veil:veil@127.0.0.1:5556 --algos sha256d --subscribe-algo sha256d
-   cgminer -o stratum+tcp://127.0.0.1:5557 -u x -p x
-   ```
-   The two SHA256D wire formats differ; pick the one your miner speaks.
-   cpuminer-opt-veil needs `cpuminer`; ASIC/cgminer style miners need
-   `stratum`.
+   The default `--sha256d-wire stratum` mode speaks standard stratum for a
+   future miner written to tolerate a zero width extranonce2, but stock
+   cgminer / bfgminer / cpuminer will refuse it (see "SHA256D needs a Veil
+   aware miner" above). Use `--sha256d-wire cpuminer` with cpuminer-opt-veil.
 
 ## Mining SHA256D on Veil
 
@@ -109,24 +120,24 @@ nVersion(4) || dataHash(32) || hashMerkleRoot(32) || nTime(4) || nNonce64(8)
 where `dataHash = sha256d(hashPrevBlock || hashWitnessMerkleRoot ||
 hashAccumulators || nBits)`.
 
-The SHA256 hashing itself is completely standard, so ASIC silicon works
-unmodified. Two Veil specifics shape how the proxy uses stratum:
+The SHA256 hashing itself is completely standard, so ASIC silicon can compute
+the hash. What makes Veil different from Bitcoin is not the hash but the work
+delivery:
 
 - **No extranonce2 rolling.** `dataHash` commits the witness merkle root, which
   in Veil commits the coinbase, so changing the coinbase invalidates the work.
   The proxy advertises `extranonce2_size = 0` and issues fresh jobs instead.
+  This is why stock stratum miners, which require a rollable extranonce2, cannot
+  mine Veil: the incompatibility is in the protocol, not the silicon.
 - **A 64 bit nonce.** The last 8 bytes cover both the slot where Bitcoin keeps
-  `nBits` and the slot where it keeps the nonce. Stratum only lets a miner roll
-  32 bits, so the proxy varies the low half per job and ships it in the `nbits`
-  field, which firmware treats as opaque. The real `nBits` cannot be forged
-  because it is committed inside `dataHash`.
+  `nBits` and the slot where it keeps the nonce. The real `nBits` cannot be
+  forged because it is committed inside `dataHash`.
 
-**What this means for hashrate.** Each job is worth `2^32` hashes multiplied by
-whatever ntime range your miner rolls. That is comfortable for USB sticks and
-small FPGAs: a 400 GH/s stick rolling ntime over a minute needs only a couple of
-jobs per second. It does not scale to large modern ASICs, which would need
-thousands of jobs per second. Veil's sha256d difficulty is low, so this is
-rarely the binding constraint.
+**What would be needed for stock USB ASICs.** Either firmware that accepts fixed
+work and grinds the 64 bit nonce without touching the coinbase, or a consensus
+change that stops committing the coinbase in `dataHash` so Veil sha256d behaves
+like ordinary Bitcoin sha256d. Neither exists today, so a USB stick with stock
+firmware will not mine Veil.
 
 **Version rolling is refused.** Veil keeps its algorithm selector in `nVersion`,
 so the proxy answers `mining.configure` with `version-rolling: false`.
