@@ -613,12 +613,27 @@ class StratumSession(asyncio.Protocol):
         sub_id = "".join(random.choice(string.ascii_uppercase + string.digits) for _ in range(13))
 
         if node.algo == "sha256d":
-            # extranonce2 cannot be rolled on Veil, so advertise zero width and
-            # give the miner fresh jobs instead.
             self.extranonce_lo = secrets.randbits(32)
-            self.send({"id": id_, "error": None,
-                       "result": [[["mining.set_difficulty", sub_id],
-                                   ["mining.notify", sub_id]], "", 0]})
+            self.nonce_hi = secrets.randbits(32)
+            if SHA256D_WIRE == "cpuminer":
+                # cpuminer-opt-veil's stratum requires a parseable extranonce2
+                # size in [2,16] even though its sha256dv path does not use one,
+                # so advertise a token width. Work is separated by nonce_hi.
+                self.send({"id": id_, "error": None,
+                           "result": [[["mining.set_difficulty", sub_id],
+                                       ["mining.notify", sub_id]],
+                                      secrets.token_hex(2), 4]})
+                # cpuminer-opt-veil submits at network difficulty (any hash
+                # under the block target), so the proxy does not impose a
+                # tighter share gate: non blocks are acknowledged, real blocks
+                # are forwarded. Set it before the difficulty push below.
+                self._no_share_gate = True
+            else:
+                # Standard stratum: extranonce2 cannot be rolled on Veil, so
+                # advertise zero width and hand out fresh jobs instead.
+                self.send({"id": id_, "error": None,
+                           "result": [[["mining.set_difficulty", sub_id],
+                                       ["mining.notify", sub_id]], "", 0]})
             self.set_difficulty(INITIAL_SHARE_DIFF)
         else:
             self.send({"id": id_, "error": None,
@@ -683,14 +698,39 @@ class StratumSession(asyncio.Protocol):
             self.send_sha256d_job(job)
 
     def send_sha256d_job(self, job):
+        if SHA256D_WIRE == "cpuminer":
+            self.send_sha256d_job_cpuminer(job)
+        else:
+            self.send_sha256d_job_stratum(job)
+
+    def send_sha256d_job_cpuminer(self, job):
+        # cpuminer-opt-veil sha256dv notify: it hashes
+        #   version_le || dataHash || merkle_le || ntime_le || nonce_lo || nonce_hi
+        # so it needs the dataHash and merkle directly, not a coinbase. This
+        # works even against a node that does not emit sharpccoinbase.
+        self.send({"id": None, "method": "mining.notify", "params": [
+            job["job_id"],
+            job["_version"],                        # version, integer
+            job["_datahash"].hex(),                 # midstate: bytes 4..35 of the header
+            job["_merkle"][::-1].hex(),             # merkle, big endian (miner reverses it)
+            "",                                     # index 4, unused by the miner
+            job["_ntime"],                          # ntime, integer
+            job.get("bits", "1d00ffff"),            # nbits, informational
+            self.nonce_hi,                          # starting nonce_hi, our work split
+            True,                                   # clean
+            int(job.get("height", 0)),
+            len(job.get("transactions", [])) + 1,   # tx_count including coinbase
+        ]})
+
+    def send_sha256d_job_stratum(self, job):
         if job.get("_coinbase") is None:
             if not getattr(self, "_warned_no_coinbase", False):
                 self._warned_no_coinbase = True
                 log.error(
                     "This node does not return sharpccoinbase, so standard stratum "
                     "cannot be served: the miner would have no way to rebuild the "
-                    "merkle root. Update the node to one that provides it. "
-                    "Disconnecting %s:%s rather than leaving it hashing nothing.",
+                    "merkle root. Update the node to one that provides it, or run "
+                    "the proxy with --sha256d-wire cpuminer. Disconnecting %s:%s.",
                     *self.peer)
             self.transport.close()
             return
@@ -749,27 +789,37 @@ class StratumSession(asyncio.Protocol):
         if not isinstance(params, list) or len(params) < 5:
             self.error(id_, 22, "Bad request: expected 5 parameters")
             return
-        job_key, _extranonce2, ntime_hex, nonce_hex = params[1], params[2], params[3], params[4]
-        if not (is_hex(str(ntime_hex), 4) and is_hex(str(nonce_hex), 4)):
-            self.error(id_, 22, "Bad request: ntime and nonce must be 4 byte hex")
+        try:
+            if SHA256D_WIRE == "cpuminer":
+                # [worker, job_id, nonce_hi_LE, ntime_LE, nonce_lo_LE]
+                job_id = str(params[1])
+                nonce_hi = int.from_bytes(bytes.fromhex(str(params[2])), "little")
+                ntime = int.from_bytes(bytes.fromhex(str(params[3])), "little")
+                nonce_lo = int.from_bytes(bytes.fromhex(str(params[4])), "little")
+                job = self.lookup(job_id)
+            else:
+                # [worker, job_id.nonce_lo, extranonce2, ntime_BE, nonce_hi_BE]
+                job_key, _en2, ntime_hex, nonce_hex = params[1], params[2], params[3], params[4]
+                if not (is_hex(str(ntime_hex), 4) and is_hex(str(nonce_hex), 4)):
+                    self.error(id_, 22, "Bad request: ntime and nonce must be 4 byte hex")
+                    return
+                if "." not in str(job_key):
+                    self.error(id_, 23, "Stale share")
+                    return
+                job_id, _, lo_hex = str(job_key).partition(".")
+                nonce_lo = int(lo_hex, 16)
+                nonce_hi = int(str(nonce_hex), 16)
+                ntime = int(str(ntime_hex), 16)
+                job = self.lookup(job_id)
+        except ValueError:
+            self.error(id_, 22, "Bad request: unparseable share")
             return
-        if "." not in str(job_key):
-            self.error(id_, 23, "Stale share")
-            return
-        job_id, _, lo_hex = str(job_key).partition(".")
-        job = self.lookup(job_id)
+
         if not job:
             self.stale += 1
             self.error(id_, 23, "Stale share")
             return
-        try:
-            nonce_lo = int(lo_hex, 16)
-        except ValueError:
-            self.error(id_, 22, "Bad job id")
-            return
 
-        nonce_hi = int(str(nonce_hex), 16)
-        ntime = int(str(ntime_hex), 16)
         nonce64 = (nonce_hi << 32) | nonce_lo
 
         # Rebuild exactly what the miner hashed and check it ourselves. This
@@ -780,7 +830,8 @@ class StratumSession(asyncio.Protocol):
         powhash = dsha256(header)
         value = int.from_bytes(powhash, "little")
 
-        if self.share_target is not None and value >= self.share_target:
+        if (not getattr(self, "_no_share_gate", False)
+                and self.share_target is not None and value >= self.share_target):
             self.error(id_, 23, "Share above target")
             return
 
@@ -925,6 +976,11 @@ def main():
     p.add_argument("--raw-prevhash", action="store_true",
                    help="send the sha256d prevhash slot without the usual "
                         "stratum 32 bit word swap")
+    p.add_argument("--sha256d-wire", default="stratum",
+                   choices=("stratum", "cpuminer"),
+                   help="sha256d job format: 'stratum' is standard stratum v1 "
+                        "for ASIC/cgminer style miners; 'cpuminer' is the "
+                        "cpuminer-opt-veil sha256dv format")
     p.add_argument("-j", "--jobs", action="store_true", help="show jobs in the log")
     p.add_argument("-v", "--verbose", "--debug", action="store_true",
                    help="set log level to debug")
@@ -938,10 +994,11 @@ def main():
     if not args.port or not args.node:
         p.error("--port and --node are required")
 
-    global SHOW_JOBS, NODES, SUBSCRIBE_NODE, INITIAL_SHARE_DIFF, PREVHASH_SWAP
+    global SHOW_JOBS, NODES, SUBSCRIBE_NODE, INITIAL_SHARE_DIFF, PREVHASH_SWAP, SHA256D_WIRE
     SHOW_JOBS = args.jobs or args.verbose
     INITIAL_SHARE_DIFF = args.share_diff
     PREVHASH_SWAP = not args.raw_prevhash
+    SHA256D_WIRE = args.sha256d_wire
 
     level = "DEBUG" if args.verbose else "INFO"
     if coloredlogs:
