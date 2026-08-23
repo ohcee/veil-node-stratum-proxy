@@ -54,7 +54,7 @@ try:
 except ImportError:
     coloredlogs = None
 
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 
 # Guard rails
 MAX_LINE_BYTES = 128 * 1024        # a stratum line longer than this is hostile
@@ -179,8 +179,16 @@ class NodeConnection:
         self.submitted = 0
         self.accepted = 0
         self.log = logging.getLogger(self.tag_plain)
-        self._wanted = asyncio.Event()
+        # Created lazily inside the running loop. Constructing an asyncio.Event
+        # here would bind it to the wrong loop on Python 3.9, which raises
+        # "got Future attached to a different loop" once asyncio.run() starts.
+        self._wanted = None
         self._pending = set()
+
+    def _wanted_event(self):
+        if self._wanted is None:
+            self._wanted = asyncio.Event()
+        return self._wanted
 
     # -- subclass contract -------------------------------------------------
 
@@ -204,13 +212,13 @@ class NodeConnection:
 
     def add_subscriber(self, s):
         self.subscribers.append(s)
-        self._wanted.set()
+        self._wanted_event().set()
 
     def remove_subscriber(self, s):
         if s in self.subscribers:
             self.subscribers.remove(s)
         if not self.subscribers:
-            self._wanted.clear()
+            self._wanted_event().clear()
 
     def remember(self, job):
         self.jobs[job["job_id"]] = job
@@ -266,7 +274,7 @@ class NodeConnection:
         backoff = 1
         while True:
             try:
-                await self._wanted.wait()
+                await self._wanted_event().wait()
                 payload = self.template_request()
                 if self.last_job and self.last_job.get("longpollid"):
                     payload["params"][0]["longpollid"] = self.last_job["longpollid"]
