@@ -37,6 +37,41 @@ width extranonce2, but no off the shelf miner does that yet.
 **No dependencies.** Python 3.8+ and nothing else; `pip install` is not needed.
 `coloredlogs` is used if it happens to be installed, and skipped if not.
 
+## Quick start (prebuilt binary)
+
+Every release ships standalone builds for Linux, macOS and Windows, no Python
+needed. Grab the one for your OS, check it against the checksums file, unpack
+and run:
+
+```bash
+wget https://github.com/ohcee/veil-node-stratum-proxy/releases/latest/download/veilproxy-linux.tar.gz
+wget https://github.com/ohcee/veil-node-stratum-proxy/releases/latest/download/SHA256SUMS.txt
+sha256sum -c --ignore-missing SHA256SUMS.txt
+tar xzf veilproxy-linux.tar.gz
+```
+
+On macOS use `veilproxy-macos.tar.gz` and `shasum -a 256 -c --ignore-missing`,
+on Windows `veilproxy-windows.zip` (it unpacks to `veilproxy.exe`).
+
+Your Veil node needs `server=1`, `rpcuser` and `rpcpassword` in veil.conf, and
+a `miningaddress` set to a plain basecoin address (bv1...). For SHA256D the
+wallet must be built from veil master until the next release. Then, for
+example, solo SHA256D:
+
+```bash
+./veilproxy -n http://rpcuser:rpcpassword@127.0.0.1:58812 -p 3333 --algos sha256d --subscribe-algo sha256d --sha256d-wire cpuminer --share-diff 1000
+```
+
+Point the miner at the proxy, for example Veil-Miner-SHA on a rig:
+
+```bash
+./run.sh -o stratum+tcp://YOUR_PROXY_IP:3333 -u anyname -p x
+```
+
+Keep `--share-diff` below the sha256d network difficulty, or block-worthy
+hashes get filtered out before they reach the node. The details and the pool
+style setups are below.
+
 ## Setup
 
 1. **Set up your VEIL full node.** An example `veil.conf`:
