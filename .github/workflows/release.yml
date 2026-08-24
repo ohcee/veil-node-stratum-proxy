@@ -56,3 +56,22 @@ jobs:
             veilproxy-*.tar.gz
             veilproxy-*.zip
 
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish SHA256SUMS.txt over every published asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir dist && cd dist
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber
+          # Leave the sum file itself out: the shell creates SHA256SUMS.txt for
+          # the redirect before find runs, and its own empty hash would make
+          # every sha256sum -c end with one FAILED line.
+          rm -f SHA256SUMS.txt
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%P\n' | sort | xargs sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt -R "$GITHUB_REPOSITORY" --clobber
