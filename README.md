@@ -8,8 +8,8 @@ three of Veil's proof of work algorithms:
 
 | algorithm | miners | notes |
 |-----------|--------|-------|
-| **ProgPoW** | T-Rex, WildRig | GPU |
-| **RandomX** | xmrig | CPU |
+| **ProgPoW** | Veil-Miner | T-Rex, WildRig | GPU |
+| **RandomX** | Veil-Miner-CPU | xmrig | CPU |
 | **SHA256D** | Veil-Miner-SHA (GPU), cpuminer-opt-veil (CPU) | Veil aware miners only |
 
 SHA256D support requires a node new enough to serve sha256d work over RPC
