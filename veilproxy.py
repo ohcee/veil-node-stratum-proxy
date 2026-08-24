@@ -497,6 +497,9 @@ class StratumSession(asyncio.Protocol):
         self.node = None
         self.worker = None
         self.closed = False
+        # a randomx login waiting for its first job (the login RESULT must
+        # carry the job, and no job exists until the node poll returns)
+        self.pending_login_id = None
         # sha256d bookkeeping
         self.extranonce_lo = None
         self.share_target = None
@@ -659,7 +662,8 @@ class StratumSession(asyncio.Protocol):
         self.node.add_subscriber(self)
         if isinstance(params, dict):
             self.worker = params.get("login")
-        self.on_new_job(login_id=id_)
+        self.pending_login_id = id_
+        self.on_new_job()
 
     def set_difficulty(self, diff):
         self.share_diff = diff
@@ -672,6 +676,9 @@ class StratumSession(asyncio.Protocol):
         job = job or (self.node.last_job if self.node else None)
         if not job:
             return
+        if login_id is None and self.pending_login_id is not None:
+            login_id = self.pending_login_id
+        self.pending_login_id = None
         algo = self.node.algo
         if algo == "progpow":
             self.send({"id": None, "method": "mining.notify", "params": [
