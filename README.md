@@ -8,7 +8,7 @@ three of Veil's proof of work algorithms:
 
 | algorithm | miners | notes |
 |-----------|--------|-------|
-| **ProgPoW** | Veil-Miner, T-Rex, WildRig | GPU |
+| **ProgPoW** | Veil-Miner, T-Rex, WildRig, TT-Miner | GPU |
 | **RandomX** | Veil-Miner-CPU, xmrig | CPU |
 | **SHA256D** | Veil-Miner-SHA (GPU), cpuminer-opt-veil (CPU) | Veil aware miners only |
 
