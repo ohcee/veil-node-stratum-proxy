@@ -10,11 +10,13 @@ three of Veil's proof of work algorithms:
 |-----------|--------|-------|
 | **ProgPoW** | T-Rex, WildRig | GPU |
 | **RandomX** | xmrig | CPU |
-| **SHA256D** | cpuminer-opt-veil (`sha256dv`) | CPU, Veil aware miners only |
+| **SHA256D** | Veil-Miner-SHA (GPU), cpuminer-opt-veil (CPU) | Veil aware miners only |
 
 SHA256D support requires a node new enough to serve sha256d work over RPC
-(`sharpcheader` / `sharpccoinbase` / `sharpcsb`). ProgPoW and RandomX work with
-wallet v1.4.0.0 or higher.
+(`sharpcheader` / `sharpccoinbase` / `sharpcsb`). Those RPCs were merged into
+veil master on 2026-08-24 ([Veil-Project/veil#1084](https://github.com/Veil-Project/veil/pull/1084)),
+so build the wallet from master until the next release ships. ProgPoW and
+RandomX work with wallet v1.4.0.0 or higher.
 
 ### SHA256D needs a Veil aware miner
 
