@@ -54,7 +54,7 @@ try:
 except ImportError:
     coloredlogs = None
 
-VERSION = "3.0.1"
+VERSION = "3.0.2"
 
 # Guard rails
 MAX_LINE_BYTES = 128 * 1024        # a stratum line longer than this is hostile
